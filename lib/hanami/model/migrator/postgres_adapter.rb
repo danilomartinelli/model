@@ -12,15 +12,15 @@ module Hanami
       class PostgresAdapter < Adapter
         # @since 0.4.0
         # @api private
-        HOST     = "PGHOST"
+        HOST = "PGHOST"
 
         # @since 0.4.0
         # @api private
-        PORT     = "PGPORT"
+        PORT = "PGPORT"
 
         # @since 0.4.0
         # @api private
-        USER     = "PGUSER"
+        USER = "PGUSER"
 
         # @since 0.4.0
         # @api private
@@ -35,13 +35,31 @@ module Hanami
         # @since 0.4.0
         # @api private
         def create
-          call_db_command("createdb")
+          new_connection(global: true).run %(CREATE DATABASE #{quotate_string(database)};)
+        rescue Sequel::DatabaseError => e
+          message = if e.message.match(/database exists/) ||
+                       e.message.match(/already exists/)
+              DB_CREATION_ERROR
+            else
+              e.message
+            end
+
+          raise MigrationError.new(message)
         end
 
         # @since 0.4.0
         # @api private
         def drop
-          call_db_command("dropdb")
+          new_connection(global: true).run %(DROP DATABASE #{quotate_string(database)};)
+        rescue Sequel::DatabaseError => e
+          message = if e.message.match(/doesn\'t exist/) ||
+                       e.message.match(/does not exist/)
+              "Cannot find database: #{database}"
+            else
+              e.message
+            end
+
+          raise MigrationError.new(message)
         end
 
         # @since 0.4.0
@@ -81,7 +99,9 @@ module Hanami
         def load_structure
           return unless schema.exist?
 
-          execute "psql -X -q -f #{escape(schema)} #{database}", env: environment_variables
+          file = File.open(escape(schema), "r")
+          new_connection(global: false).run file.read
+          file.close
         end
 
         # @since 0.4.0
@@ -117,6 +137,14 @@ module Hanami
             "Could not find executable in your PATH: `#{original_message.split.last}`"
           else
             original_message
+          end
+        end
+
+        def quotate_string(string)
+          if string.start_with?('"', "'")
+            string
+          else
+            "\"#{string}\""
           end
         end
       end
